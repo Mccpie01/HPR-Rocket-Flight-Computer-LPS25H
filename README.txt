@@ -1,4 +1,4 @@
-** This fork is an atemp to add support for the LPS25H. barometer. ** And in doing so Support the AltIMU-10 v5 
+** This fork is an atemp to add support for the LPS25H. barometer. ** And in doing so Support the Pololu AltIMU-10 v5 
 
 *NOTE: If you are planning to use this code or board files, please send me a Private Message (PM) on Rocketry Forum 
 to ensure I have posted the latest updates.  https://www.rocketryforum.com/members/sparkyvt.810/
