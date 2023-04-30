@@ -2093,20 +2093,14 @@ void getLPS25H() {
   static unsigned long tempReadStart;
   static unsigned long pressReadStart;
 
-  if (getTemp) {
     initiateTemp();
-    tempReadStart = micros();
     getTemp = false;
-    readTemp = true;}
-
-  if (readTemp && micros() - tempReadStart > tmpRdTime) {
+    readTemp = true;
+    getTemp();
+  
     initiatePressure();
-    pressReadStart = micros();
     baro.newTemp = true;
-    readTemp = false;
-    readPress = true;}
-
-  if (readPress && micros() - pressReadStart > bmpRdTime) {
+    
     getPressure();
     baro.rawAlt = pressureToAltitude(baro.seaLevelPressure, baro.pressure);
     readPress = false;
@@ -2162,7 +2156,8 @@ void getPressure() {
   pressure |= data[2] << 16;
 
   baro.pressure = pressure / 4096.0;
-  
+  }
+void getTemp() {
   //get and assemble temp data
   burstRead(LPS25H_REGISTER_TEMP_OUT_L, 1);
   temperature = data[0];
