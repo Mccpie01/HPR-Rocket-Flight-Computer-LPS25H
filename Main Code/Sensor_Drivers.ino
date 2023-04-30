@@ -20,7 +20,7 @@
 //03 JAN 22: Moved I2C and SPI generic functions to Bus_Mgmt tab to better support different processors
 //10 MAY 22: Updated to have any device on any I2C or SPI bus
 //16 JUN 22: Updated with streamlined bus mgt functions, eliminated highG 3-axis mode due to improved i2c speed
-//30 APR 23: Added support LPS25H
+//30 APR 23: Added support LPS25H  Alpha release of LPS25H. Do not used
 //--------Supported Sensors---------
 //Accelerometers:LSM303, LSM9DS1, LSM6DS33
 //Gyroscopes: L3GD20H, LSM9DS1, LSM6DS33
