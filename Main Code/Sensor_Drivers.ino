@@ -5,6 +5,7 @@
 //Sensor Package 3: LSM9DS1, MPL3115A2, ADXL377
 //Sensor Package 4: LSM9DS1, MS5611, H3LIS331DL
 //Sensor Package 5: LSM6DS33, LIS3MDL, MS5607, H3LIS331DL
+//Sensor Package 6: LSM6DS33, LIS3MDL, LPS25H   -- Pololu AltIMU-10   Alpha release. Do not used
 //-----------Change Log------------
 //26 Nov 17: Version 1 created to support Adafruit 10Dof board
 //10 Nov 18: Version 2 created to support LSM9DS1, H3LIS331DL, BMP280, BMP388
@@ -19,12 +20,13 @@
 //03 JAN 22: Moved I2C and SPI generic functions to Bus_Mgmt tab to better support different processors
 //10 MAY 22: Updated to have any device on any I2C or SPI bus
 //16 JUN 22: Updated with streamlined bus mgt functions, eliminated highG 3-axis mode due to improved i2c speed
+//30 APR 23: Added support LPS25H
 //--------Supported Sensors---------
 //Accelerometers:LSM303, LSM9DS1, LSM6DS33
 //Gyroscopes: L3GD20H, LSM9DS1, LSM6DS33
 //Magnetometers: LSM303, LSM9DS1, LIS3MDL
 //High-G Accelerometers: H3LIS331DL, ADS1115 & ADXL377 Combo, ADXL377 & Teensy3.5 ADC combo
-//Barometric: BMP180, BMP280, BMP388, MPL3115A2, MS5611, MS5607
+//Barometric: BMP180, BMP280, BMP388, MPL3115A2, MS5611, MS5607, LPS25H
 //WARNING: New generation Bosch sensors are sensitive to RF interference (BMP280,BMP388,etc)
 //----------------------------
 //LIST OF FUNCTIONS & ROUTINES
@@ -100,6 +102,11 @@
 //CmdMS56XX(): helper function to send commands
 //ConvertTempMS56XX(): converts temperature
 //ConvertPressMS56XX(): converts pressure
+
+//beginLPS25H(): starts sensor
+//initiateTemp():
+//initiatePressure():
+//getLPS25H(): reads sensor data
 
 //***************************************************************************
 //Generic Sensor Begin & Read Statements
@@ -418,6 +425,11 @@ void getBaro() {
     case 6:
       getMS56XX();
       break;
+      
+    case 6:
+      getLPS25H();
+      break;
+  
   }
 }
 
@@ -1966,6 +1978,207 @@ void getBMP388() {
 }
 
 //***************************************************************************
+// Add support for Pololu AltIMU-10 v5 Gyro, Accelerometer, Compass, and Altimeter (LSM6DS33, LIS3MDL, and LPS25H Carrier)
+// Only one sensor is missing from library LPS25H Pressure Sensor
+// The LSM6DS33, LIS3MDL are allready supported
+// Referance from https://github.com/electricimp/LPS25H/tree/master  And
+// https://github.com/jbroutier/LPS25H-driver/tree/master
+//***************************************************************************
+/***************************************************************************
+  This is a library for the LPS25H pressure sensor
+  Sample rate should be 800 per sec
+***************************************************************************/
+//IC2 Address Registry https://learn.adafruit.com/i2c-addresses/the-list
+#define SA0_LOW_ADDRESS  0b1011100   //0x5c
+#define SA0_HIGH_ADDRESS 0b1011101   //0x5D
+
+static constexpr auto LPS25H_ADDRESS = 0x5D; //Pololu board pulls SA0 high, so default assumption is that it is high
+
+typedef enum
+{
+    LPS25H_AVERAGE_PRESSURE_8_SAMPLES   = 0b00,  //default data rate selected
+    LPS25H_AVERAGE_PRESSURE_32_SAMPLES  = 0b01,
+    LPS25H_AVERAGE_PRESSURE_128_SAMPLES = 0b10,
+    LPS25H_AVERAGE_PRESSURE_512_SAMPLES = 0b11,
+} LPS25HAveragePressureSamples_t;
+
+typedef enum
+{
+    LPS25H_AVERAGE_TEMPERATURE_8_SAMPLES  = (0b00 << 2),
+    LPS25H_AVERAGE_TEMPERATURE_16_SAMPLES = (0b01 << 2),
+    LPS25H_AVERAGE_TEMPERATURE_32_SAMPLES = (0b10 << 2),
+    LPS25H_AVERAGE_TEMPERATURE_64_SAMPLES = (0b11 << 2),
+} LPS25HAverageTemperatureSamples_t;
+
+typedef enum
+{
+    LPS25H_DATARATE_ONE_SHOT = (0b000 << 4),
+    LPS25H_DATARATE_1_HZ     = (0b001 << 4),
+    LPS25H_DATARATE_7_HZ     = (0b010 << 4),
+    LPS25H_DATARATE_12_5_HZ  = (0b011 << 4),
+    LPS25H_DATARATE_25_HZ    = (0b100 << 4),
+} LPS25HDataRate_t;
+
+typedef enum
+{
+    LPS25H_BDU_DISABLE = (0b0 << 2),
+    LPS25H_BDU_ENABLE  = (0b1 << 2),
+} LPS25HDataUpdateMode_t;
+
+typedef enum
+{
+    LPS25H_POWER_DOWN = (0b0 << 7),
+    LPS25H_POWER_UP   = (0b1 << 7),
+} LPS25HPowerMode_t;
+
+static constexpr auto LPS25H_REGISTER_REF_P_XL      = 0x08;
+static constexpr auto LPS25H_REGISTER_REF_P_L       = 0x09;
+static constexpr auto LPS25H_REGISTER_REF_P_H       = 0x0A;
+static constexpr auto LPS25H_REGISTER_WHO_AM_I      = 0x0F;
+static constexpr auto LPS25H_REGISTER_RES_CONF      = 0x10;
+static constexpr auto LPS25H_REGISTER_CTRL_REG1     = 0x20;
+static constexpr auto LPS25H_REGISTER_CTRL_REG2     = 0x21;
+static constexpr auto LPS25H_REGISTER_CTRL_REG3     = 0x22;
+static constexpr auto LPS25H_REGISTER_CTRL_REG4     = 0x23;
+static constexpr auto LPS25H_REGISTER_INTERRUPT_CFG = 0x24;
+static constexpr auto LPS25H_REGISTER_INT_SOURCE    = 0x25;
+static constexpr auto LPS25H_REGISTER_STATUS_REG    = 0x27;
+static constexpr auto LPS25H_REGISTER_PRESS_OUT_XL  = 0x28;
+static constexpr auto LPS25H_REGISTER_PRESS_OUT_L   = 0x29;
+static constexpr auto LPS25H_REGISTER_PRESS_OUT_H   = 0x2A;
+static constexpr auto LPS25H_REGISTER_TEMP_OUT_L    = 0x2B;
+static constexpr auto LPS25H_REGISTER_TEMP_OUT_H    = 0x2C;
+static constexpr auto LPS25H_REGISTER_FIFO_CTRL     = 0x2E;   //do not acticate Flitering
+static constexpr auto LPS25H_REGISTER_FIFO_STATUS   = 0x2F;
+static constexpr auto LPS25H_REGISTER_THS_P_L       = 0x30;
+static constexpr auto LPS25H_REGISTER_THS_P_H       = 0x31;
+static constexpr auto LPS25H_REGISTER_RPDS_L        = 0x39;
+static constexpr auto LPS25H_REGISTER_RPDS_H        = 0x3A;
+
+
+boolean beginLPS25H() {
+ //Define bus settings and start bus - ONLY I2C!!
+  baroBus.i2cAddress = LPS25H_ADDRESS;
+  //baroBus.i2cRate = 400000;    // not sure what to put here ??
+  //Add testing the IC2 address of the LPS25h
+  startI2C(&baroBus, sensors.baroBusNum);   //sensors.baroBusNum
+
+
+  //Check to see if there is a sensor at this address, no whoami
+  if (!testSensor(LPS25H_ADDRESS)) {
+    Serial.println(F("LPS25H I2C Fail!"));
+    return false;}
+
+  //check whoami
+  byte id = read8(LPS25H_REGISTER_WHO_AM_I);
+  if (id != 0xBD) {
+    Serial.print(F("LPS25H not found! ")); Serial.println(id);
+    return false;}
+  Serial.println(F("LPS25H OK!"));
+
+  //Data output rates need to be at least 800 samples per second.  Do not use any onboard filters, such as a high-pass or low-pass filter.  Capture raw data only. 
+  //since everthing happens in a timed sequence, we need to check it every cycle
+  //baro.timeBtwnSamp = 0;   //Not Sure How to handel or if needed
+
+   return true;}
+
+void getLPS25H() {
+  //Get a LPS25H barometric event if needed
+  //See if a new temp is needed
+  //const unsigned long tmpRdTime = 4500; //Read delay if needs 4.5ms to read temp
+  //const unsigned long bmpRdTime = 25500; //Read delay if needs 25.5ms to read pressure
+  static boolean getTemp = true;
+  static boolean readTemp = false;
+  static boolean readPress = false;
+  static unsigned long tempReadStart;
+  static unsigned long pressReadStart;
+
+  if (getTemp) {
+    initiateTemp();
+    tempReadStart = micros();
+    getTemp = false;
+    readTemp = true;}
+
+  if (readTemp && micros() - tempReadStart > tmpRdTime) {
+    initiatePressure();
+    pressReadStart = micros();
+    baro.newTemp = true;
+    readTemp = false;
+    readPress = true;}
+
+  if (readPress && micros() - pressReadStart > bmpRdTime) {
+    getPressure();
+    baro.rawAlt = pressureToAltitude(baro.seaLevelPressure, baro.pressure);
+    readPress = false;
+    getTemp = true;
+    baro.newSamp = true;}
+  }//end getLPS25H
+
+void initiateTemp() {
+ 
+  //set bus
+  activeBus = &baroBus;
+  data = 0;
+  data |= LPS25H_BDU_ENABLE;
+  data |= LPS25H_DATARATE_12_5_HZ;
+  data |= LPS25H_AVERAGE_TEMPERATURE_8_SAMPLES;
+
+  //send command
+  write8(LPS25H_REGISTER_CTRL_REG1, (uint8_t)data);}
+  }end initiate Temp
+
+
+void initiatePressure() {
+  //set bus
+  activeBus = &baroBus;
+  data = 0;
+  data |= LPS25H_BDU_ENABLE;
+  data |= LPS25H_DATARATE_25_HZ;
+  data |= LPS25H_AVERAGE_PRESSURE_512_SAMPLES;
+
+  //send command
+  write8(LPS25H_REGISTER_CTRL_REG1, (uint8_t)data);}
+  }//end initiate pressure
+
+void getPressure() {
+  uint8_t  p8;
+  uint16_t p16;
+  int32_t  up = 0, compp = 0;
+  int32_t  x1, x2, b6, x3, b3, p;
+  uint32_t b4, b7;
+  int32_t pressure = 0;
+  int32_t mypressure = 0;
+  int32_t temperature = 0;
+
+  //set bus
+  activeBus = &baroBus;
+
+  //get and assemble Pressure data
+  burstRead(LPS25H_REGISTER_PRESS_OUT_XL, 1);
+  pressure = data[0];
+  burstRead(LPS25H_REGISTER_PRESS_OUT_L, 1);
+  pressure |= data[1] << 8;
+  burstRead(LPS25H_REGISTER_PRESS_OUT_H, 1);
+  pressure |= data[2] << 16;
+
+  baro.pressure = pressure / 4096.0;
+  
+  //get and assemble temp data
+  burstRead(LPS25H_REGISTER_TEMP_OUT_L, 1);
+  temperature = data[0];
+  burstRead(LPS25H_REGISTER_TEMP_OUT_H, 1);
+  temperature |= data[1] << 8;
+
+  if (temperature > 32768) {
+        temperature -= 65536;
+    }
+
+    baro.temperature = 42.5 + (temperature / 480.0);
+        
+    }
+   
+
+//***************************************************************************
 //MS5611 and MS5607 Barometric Pressure Sensors
 //***************************************************************************
 #define MS56XX_ADDRESS (0x77)
@@ -2191,3 +2404,5 @@ float ConvertPressMS56XX() {
   baro.newSamp = true;
 
   return pressure;}
+
+
