@@ -1,13 +1,13 @@
 //High-Power Rocketry Flight Computer (TeensyFlight)
 //Original sketch by Bryan Sparkman, TRA #12111, NAR #85720, L3
 //Built for Teensy 3.2, 3.5, 3.6, 4.0, and 4.1
-//Code Line Count: 9360 lines of code = 2443 MainFile + 354 Bus_Mgmt + 2197 SensorDrivers + 888 Calibration + 625 SpeedTrig + 466 Inflight_Recover + 672 SD + 398 Rotation + 707 Telemetry + 327 Event_Logic + 283 GPSconfig      
+//Code Line Count: 9643 lines of code = 2465 MainFile + 354 Bus_Mgmt + 2198 SensorDrivers + 888 Calibration + 625 SpeedTrig + 471 Inflight_Recover + 677 SD + 634 Rotation + 721 Telemetry + 327 Event_Logic + 283 GPSconfig      
 //--------FEATURES----------
 //Dual-deploy flight computer capable to over 100,000ft 
 //Two-stage & airstart capable with tilt-sensing safety features
 //Live telemetry over 433MHz or 915MHz LoRa (433MHz: USA amateur 70cm band, EUR licencse free) (915MHz: USA FHSS licence free or USA amateur license use non-FHSS) 
 //4 programmable high-current pyro outputs with continuity checks
-//Captures high-rate data at approximately 50,000 samples per second recorded to SD card
+//Captures high-rate data at approximately 50,000 data points per second on SD card
 //--1000Hz 3-axis digital 16G and 100G accelerometer data logging
 //--1000Hz 3-axis digital 2000dps gyroscope data logging
 //--1000Hz of flight events & continuity data logging
@@ -71,6 +71,8 @@
 //V4_5_1 adds optional GPS output file to capture NMEA sentences for contest flights, creates better radio resilliency by adding the callsign back into the header of the packet (coded but not yet implemented), fixed bug when TX and beep are both off in test mode
 //V4_5_2 finishes the draft RTB code, adds a canard calibration flight mode, fixed GPS bug with NEO-M8N
 //V4_5_3 uses the RFM96W in both 70cm and 900MHz mode based on user frequency input for 3 options: (1)900MHz FHSS up to 20dB, (2)900MHz dedicated frequency at 2dB, (3)70cm dedicated frequecy up to 20dB
+//V4_5_4 fixes a bug in the sensor timing that reduced the effective data capture rate
+//V4_5_5 removes launch detection user options since the algorithm is proven reliable, fixes a timing bug with the barometers, makes GPS code more portable
 //-------FUTURE UPGRADES----------
 //Active Stabilization (started)
 //Return-to-Base capability (started)
@@ -81,6 +83,7 @@
 //------TO DO LIST------
 //Finish bench testing of inflight recovery routines
 //Flight test airstart code
+//Debug Inflight Recovery
 //stuck-in-a-loop detection and breakout
 //-------CODE START--------
 #include <EEPROM.h>
@@ -123,7 +126,7 @@ IntervalTimer syncTimer;
 //-----------------------------------------
 //Set code version
 //-----------------------------------------
-const float codeVersion = 4.52;
+const float codeVersion = 4.55;
 //-----------------------------------------
 //EEPROM allocation
 //-----------------------------------------
@@ -407,8 +410,6 @@ struct {
   char reportStyle = 'P';
   boolean GPSfile = false;
   unsigned long setupTime = 5000000UL;
-  int gTrigger = 3415; //2.5G trigger
-  unsigned long detectLiftoffTime = 500000UL; //0.5s
   float mainDeployAlt = 153;//Up to 458m for main deploy
   unsigned long rcdTime = 900000000UL; //15min
   unsigned long apogeeDelay = 1000000UL; //1.0s apogee delay
@@ -587,6 +588,7 @@ eventList resetEvents;
 //-----------------------------------------
 typedef struct{
   unsigned long liftoff = 0UL;
+  unsigned long detectLiftoffTime = 500000UL; //0.5s
   unsigned long boosterBurnout = 0UL;
   unsigned long boosterSeparation = 0UL;
   unsigned long sustainerFireCheck = 0UL;
@@ -647,6 +649,7 @@ float unitConvert = 3.2808F;
 int g = 1366;
 float accelNow;
 float maxG = 0.0;
+int gTrigger = 3415; //2.5G trigger
 //-----------------------------------------
 //High-G accelerometer variables
 //-----------------------------------------
@@ -898,7 +901,6 @@ _bus *activeBus;
 //-----------------------------------------
 boolean GPSecho = false;
 boolean radioDebug = false;
-boolean disp = false;
 boolean TXdataFile = true;
 //--------------------------------------------
 //Radio event codes to eliminate magic numbers
@@ -1137,6 +1139,9 @@ void setup(void) {
   
   //read the flight settings from the SD card
   readFlightSettingsSD();
+
+  //set the g-trigger
+  gTrigger = 2.5 * g;
   
   //Initialize the radio
   //if the Adafruit RFM9XW board is used, make sure its on
@@ -1147,10 +1152,6 @@ void setup(void) {
   else{Serial.println(F("RFM96W/95W not found!"));}
   
   //safety override of user settings
-  if (settings.gTrigger < 1.5 * g) {settings.gTrigger = 1.5 * g;} //min 1.5G trigger
-  if (settings.gTrigger > 5 * g) {settings.gTrigger = 5 * g;} //max 5G trigger
-  if (settings.detectLiftoffTime < 100000UL) {settings.detectLiftoffTime = 100000UL;} //.1s min gTrigger detection
-  if (settings.detectLiftoffTime > 1000000UL) {settings.detectLiftoffTime = 1000000UL;} //1s max gTrigger detection
   if (settings.apogeeDelay > 5000000UL) {settings.apogeeDelay = 5000000UL;} //5s max apogee delay
   if (settings.fireTime > 1000000UL) {settings.fireTime = 1000000UL;} //1s max firing length
   if (settings.mainDeployAlt > 458){settings.mainDeployAlt = 458;}//max of 1500 ft
@@ -1177,10 +1178,6 @@ void setup(void) {
   EEPROM.update(eeprom.reportStyle, settings.reportStyle);
   ulongUnion.val = settings.setupTime;
   for(byte i=0; i<4; i++){EEPROM.update(eeprom.setupTime + i, ulongUnion.Byte[i]);}
-  intUnion.val = settings.gTrigger;
-  for(byte i=0; i<2; i++){EEPROM.update(eeprom.gTrigger + i, intUnion.Byte[i]);}
-  ulongUnion.val =  settings.detectLiftoffTime;
-  for(byte i=0; i<2; i++){EEPROM.update(eeprom.detectLiftoffTime + i, ulongUnion.Byte[i]);}
   floatUnion.val = settings.mainDeployAlt;
   for(byte i=0; i<4; i++){EEPROM.update(eeprom.mainDeployAlt + i, floatUnion.Byte[i]);}
   ulongUnion.val = settings.apogeeDelay;
@@ -1481,12 +1478,12 @@ void setup(void) {
       setRadioPWR(settings.TXpwr);//lowest power setting
       Serial.print(F("Radio Power Reduced for Bench Test Mode: "));
       Serial.println(settings.TXpwr);}
-    settings.detectLiftoffTime = 10000UL; //0.01s
+    fltTime.detectLiftoffTime = 10000UL; //0.01s
     settings.setupTime = 3000UL; //3s startup time
     settings.apogeeDelay = 1000000UL; //1s apogee delay
     settings.rcdTime = 15000000UL; //15s record time
     if(settings.stableRotn || settings.stableVert){settings.rcdTime = 30000000UL;}//30s of record time for serial plotting
-    settings.gTrigger = (int)(1.5*g); //1.5G trigger
+    gTrigger = (int)(1.5*g); //1.5G trigger
     baro.maxAlt = 11101/unitConvert;
     maxVelocity = 202/unitConvert;
     RIpostFlight = 1000000UL;
@@ -1686,9 +1683,9 @@ void setup(void) {
     voltage = (float)(voltReading)*3.3*2.72*adcConvert;}
   
   //Reset the G-trigger
-  if(accel.orientX == 'Z'){settings.gTrigger -= accel.dirX*accel.biasX;}
-  if(accel.orientY == 'Z'){settings.gTrigger -= accel.dirY*accel.biasY;}
-  if(accel.orientZ == 'Z'){settings.gTrigger -= accel.dirZ*accel.biasZ;}
+  if(accel.orientX == 'Z'){gTrigger -= accel.dirX*accel.biasX;}
+  if(accel.orientY == 'Z'){gTrigger -= accel.dirY*accel.biasY;}
+  if(accel.orientZ == 'Z'){gTrigger -= accel.dirZ*accel.biasZ;}
   
   //Read main deploy setting into its beep array
   if(settings.reportStyle == 'P'){
@@ -1767,40 +1764,53 @@ void setup(void) {
 int cyclesBtwn = 0;
 uint32_t sampleTime = 0UL;
 uint32_t sampleStart = 0UL;
+uint32_t sampleTimeCheck = 0UL;
 
 void loop(void){
 
   //debug
   if(settings.testMode){sampleStart = micros();}
   
-  //Sample the Accelerometer
-  if(micros()-accel.timeLastSamp > accel.timeBtwnSamp){
+  //Check if an accelerometer sample is needed and set timestamp
+  fltTime.tmClock = sampleTimeCheck = micros();
+  if(sampleTimeCheck - accel.timeLastSamp > accel.timeBtwnSamp){
     getAccel();
-    accel.timeLastSamp = micros();}
-  
-  //Sample the Gyroscope
-  if(micros()-gyro.timeLastSamp > gyro.timeBtwnSamp){
+    accel.timeLastSamp += accel.timeBtwnSamp;
+    while(sampleTimeCheck - accel.timeLastSamp > accel.timeBtwnSamp){accel.timeLastSamp += accel.timeBtwnSamp;}}
+
+  //Check if an gyroscope sample is needed
+  sampleTimeCheck = micros();
+  if(sampleTimeCheck - gyro.timeLastSamp > gyro.timeBtwnSamp){
     getGyro();
-    gyro.timeLastSamp = micros();}
+    gyro.timeLastSamp += gyro.timeBtwnSamp;
+    while(sampleTimeCheck - gyro.timeLastSamp > gyro.timeBtwnSamp){gyro.timeLastSamp += gyro.timeBtwnSamp;}}
 
-  //Sample the High-G accelerometer
-  if(micros()-highG.timeLastSamp >= highG.timeBtwnSamp){
+  //Check if a high-G accelerometer sample is needed
+  sampleTimeCheck = micros();
+  if(sampleTimeCheck - highG.timeLastSamp > highG.timeBtwnSamp){
     getHighG();
-    highG.timeLastSamp = micros();}
-  
-  //Sample the Barometric Pressure Sensor
-  if(micros()-baro.timeLastSamp >= baro.timeBtwnSamp){
+    highG.timeLastSamp += highG.timeBtwnSamp;
+    while(sampleTimeCheck - highG.timeLastSamp > highG.timeBtwnSamp){highG.timeLastSamp += highG.timeBtwnSamp;}}
+
+  //Check if a barometer sample is needed
+  sampleTimeCheck = micros();
+  if(sampleTimeCheck - baro.timeLastSamp > baro.timeBtwnSamp){
     getBaro();
-    baro.timeLastSamp = micros();}
+    //barometers work in single-shot mode so we can't use time-block sampling like the other sensors
+    baro.timeLastSamp = sampleTimeCheck;}
 
-  //Sample the Magnetometer
-  if(micros()-mag.timeLastSamp > mag.timeBtwnSamp){
+  //Check if a magnetometer sample is needed
+  sampleTimeCheck = micros();
+  if(sampleTimeCheck - mag.timeLastSamp > mag.timeBtwnSamp){
     getMag();
-    mag.timeLastSamp = micros();}
-
+    mag.timeLastSamp += mag.timeBtwnSamp;
+    while(sampleTimeCheck - mag.timeLastSamp > mag.timeBtwnSamp){mag.timeLastSamp += mag.timeBtwnSamp;}}
+    
   //Sample continuity
   checkPyroContinuity();
-  sampleTime = micros() - sampleStart;
+
+  //debug
+  if(settings.testMode){sampleTime = micros() - sampleStart;}
   
   //process barometric samples
   //See if a new altitude reading is available
@@ -1813,11 +1823,8 @@ void loop(void){
     if(abs(mag.x) > magTrigger || abs(mag.y) > magTrigger || abs(mag.z) > magTrigger){n=1;}
     while(n==1){digitalWrite(pins.beep, HIGH);delay(1000);}}
 
-  //set timestamp
-  fltTime.tmClock = micros();
-
   //detect liftoff
-  if (!events.liftoff && accel.z > settings.gTrigger && !events.touchdown && !events.timeOut) {
+  if (!events.liftoff && accel.z > gTrigger && !events.touchdown && !events.timeOut) {
     if(settings.testMode){Serial.println(' ');Serial.println(F("Simulated Liftoff Detected!"));}
     fltTime.padTime = fltTime.tmClockPrev = fltTime.tmClock;
     events.preLiftoff = false;
@@ -1912,7 +1919,6 @@ void loop(void){
       dx = dy = dz = 0L;
       uint32_t controlTime = micros();
       if (controlTime - timeLastControl >= controlInterval) {
-        disp=true;
         setCanards();
         timeLastControl = controlTime;}}
     
@@ -2112,13 +2118,13 @@ void loop(void){
     
   //GPS Code
   /*if(!configGPSdefaults && micros() - timeLastGPS > 10000000UL){
-    restoreGPSdefaults();
+    restoreGPSdefaults(settings.testMode);
     configGPSdefaults = true; 
     gpsFix = 0;
     fixCount = 0;
     configGPSflight = false;}*/
   //5 seconds after touchdown put GPS into Power Save Mode (PSM)
-  if( !GPSpsm && (events.touchdown || events.timeOut) && micros() - fltTime.touchdown > 5000000UL){GPSpowerSaveMode();GPSpsm = true;}
+  if( !GPSpsm && (events.touchdown || events.timeOut) && micros() - fltTime.touchdown > 5000000UL){GPSpowerSaveMode(settings.testMode);GPSpsm = true;}
   //Read from serial
   if(HWSERIAL->available() > 0){msgRX = true;}
   while(HWSERIAL->available() > 0){
@@ -2135,7 +2141,7 @@ void loop(void){
         fixCount++;
         gpsFix = 1;
         if(!configGPSflight && fixCount > 40){
-          configGPS();
+          configGPS(settings.testMode, sensors.GPS, settings.flyBack);
           gpsFix = 0;
           configGPSflight = true; 
           configGPSdefaults = false;}
@@ -2336,10 +2342,6 @@ void readEEPROMsettings(){
   settings.reportStyle = (char)EEPROM.read(eeprom.reportStyle);
   for(byte i=0; i<4; i++){ulongUnion.Byte[i] = (byte)EEPROM.read(eeprom.setupTime + i);}
   settings.setupTime = ulongUnion.val;
-  for(byte i=0; i<2; i++){intUnion.Byte[i] = (byte)EEPROM.read(eeprom.gTrigger + i);}
-  settings.gTrigger = intUnion.val;
-  for(byte i=0; i<4; i++){ulongUnion.Byte[i] = (byte)EEPROM.read(eeprom.detectLiftoffTime + i);}
-  settings.detectLiftoffTime = ulongUnion.val;
   for(byte i=0; i<4; i++){floatUnion.Byte[i] = (byte)EEPROM.read(eeprom.mainDeployAlt + i);}
   settings.mainDeployAlt = floatUnion.val;
   for(byte i=0; i<4; i++){ulongUnion.Byte[i] = (byte)EEPROM.read(eeprom.apogeeDelay + i);}

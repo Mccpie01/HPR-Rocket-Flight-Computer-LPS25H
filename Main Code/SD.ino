@@ -297,8 +297,6 @@ void readFlightSettingsSD(){
   parseNextVariable(false); settings.units = dataString[0]; if(settings.units == 'M'){unitConvert = 1.0F;}
   parseNextVariable(false); settings.reportStyle = dataString[0];
   settings.setupTime = (unsigned long)(parseNextVariable(true)*1000UL);
-  settings.gTrigger = (int)(parseNextVariable(true)*g);
-  settings.detectLiftoffTime = (unsigned long)(parseNextVariable(true)*1000000UL);
   settings.mainDeployAlt = (float)(parseNextVariable(true)/unitConvert);
   settings.apogeeDelay = (unsigned long)(parseNextVariable(true)*1000000UL);
   settings.rcdTime = (unsigned long)(parseNextVariable(true)*1000000UL);
@@ -347,6 +345,7 @@ void writeSDflightData(){
   writeIntData(highG.x);
   writeIntData(highG.y);
   writeIntData(highG.z);
+  //debug output for write flags
   if(settings.testMode){
     writeIntData(cyclesBtwn);
     writeBoolData(accel.newSamp);
@@ -357,9 +356,13 @@ void writeSDflightData(){
     writeBoolData(baro.newTemp);
     writeBoolData(SDradioTX);
     writeBoolData(gpsWrite);
+    writeBoolData(writeVolt);
     dataString[strPosn] = cs;strPosn++;
     writeULongData(sampleTime);
     cyclesBtwn = 0;}
+  //reset write flags
+  accel.newSamp = gyro.newSamp = highG.newSamp = false;
+  //Smoothed high-G data
   writeIntData((int16_t)highGsmooth);
   //Integrated Rotation Values
   writeLongData(rollZ);
@@ -455,14 +458,13 @@ void writeSDflightData(){
   dataString[strPosn] = '\r';strPosn++;
   dataString[strPosn] = '\n';strPosn++;
   dataString[strPosn] = '\0';
-  // write the string to file
+  // write the string to file and capture the time it takes to write to the SD card
   if(settings.testMode){writeStart = micros();}
   outputFile.write(dataString, strPosn);
   if(settings.testMode){writeTime = micros() - writeStart;
     if(writeTime > maxWriteTime){maxWriteTime = writeTime;}
     if(writeTime > writeThreshold){writeThreshCount++;}}
   strPosn = 0;
-  accel.newSamp = gyro.newSamp = highG.newSamp = false;
 }//end write SD data
 
 void writeSDfooter(){
@@ -537,7 +539,7 @@ void writeSDfooter(){
   outputFile.write(dataString, strPosn);
   
   //write out the settings for the flight
-  outputFile.print(F("Rocket Name, callsign, HWid, flightProfile, units, inflightRecover, pyro4func, pyro3func, pyro2func, pyro1func, gTrigger, detectLiftoffTime, apogeeDelay, mainDeployAlt, setupTime, rcdTime, fireTime, TXenable, TXpwr, TXfreq, FHSS, seaLevelPressure"));
+  outputFile.print(F("Rocket Name, callsign, HWid, flightProfile, units, inflightRecover, pyro4func, pyro3func, pyro2func, pyro1func, apogeeDelay, mainDeployAlt, setupTime, rcdTime, fireTime, TXenable, TXpwr, TXfreq, FHSS, seaLevelPressure"));
   if(settings.fltProfile == '2'){outputFile.println("ignitionDelay, sepDelay, altThreshold, maxAng");}
   else if(settings.fltProfile == 'A'){outputFile.println("aistart1event, airstart1delay, airstart2event, airstart2delay, altThreshold, maxAng");}
   else{outputFile.println(' ');}
@@ -552,8 +554,6 @@ void writeSDfooter(){
   outputFile.print(settings.pyro2Func);outputFile.print(cs);
   outputFile.print(settings.pyro1Func);outputFile.print(cs);
   strPosn = 0;
-  writeFloatData((float)settings.gTrigger/(float)g,1);
-  writeFloatData(((float)settings.detectLiftoffTime)*mlnth,2);//issue
   writeFloatData(((float)settings.apogeeDelay)*mlnth,1);
   writeFloatData(((float)settings.mainDeployAlt)*unitConvert,0);
   writeFloatData(((float)settings.setupTime)/1000,0);//issue
