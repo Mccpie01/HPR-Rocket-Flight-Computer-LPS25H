@@ -3,13 +3,13 @@ Place this file into the root folder of the SD card
 At startup the flight computer will read it and update the EEPROM
 Once finished, the flight computer will delete this file
 -----Device ID Code------
-accel = 2
-mag = 2
-gyro = 2
-highG = 2
+accel = 3
+mag = 3
+gyro = 3
+highG = 0
 baro = 5
-radio = 1
-GPS = 2
+radio = 0
+GPS = 4
 SD = 1
 ------Device Buses--------
 accel = I2
@@ -35,16 +35,16 @@ magY = +Y
 magZ = +Z
 -------GPIO---------
 pyro1cont = 14
-pyro1fire = 39
-pyro2cont = 16
-pyro2fire = 15
-pyro3cont = 18
-pyro3fire = 17
-pyro4cont = 22
-pyro4fire = 19
+pyro1fire = 2
+pyro2cont = 0
+pyro2fire = 3
+pyro3cont = 0
+pyro3fire = 4
+pyro4cont = 0
+pyro4fire = 5
 nullPin = 56
-beepPin = 23
-battVoltPin = 33
+beepPin = 33
+battVoltPin = 0
 testGnd = 2
 testRead = 5
 radioIRQ = 28
@@ -58,14 +58,14 @@ magCS = 56
 baroCS = 56
 sdCS = 56
 ----Servo Control Pins----
-servo 1 pin = 6
-servo 2 pin = 7
-servo 3 pin = 20
-servo 4 pin = 21
-servo 5 pin = 38
-servo 6 pin = 37
-servo 7 pin = 36
-servo 8 pin = 35
+servo 1 pin = 8
+servo 2 pin = 9
+servo 3 pin = 10
+servo 4 pin = 11
+servo 5 pin = 12
+servo 6 pin = 13
+servo 7 pin = 14
+servo 8 pin = 15
 ----Ham Radio Call Sign----
 callSign = KK4ELF
 -----Magnetometer-----
@@ -79,9 +79,9 @@ Accel: LSM303 = 1, LSM9DS1 = 2, LSM6DS33 = 3
 Gyro: L3GD20H = 1, LSM9DS1 = 2, LSM6DS33 = 3
 Mag: LSM303 = 1, LSM9DS1 = 2, LIS3MDL = 3
 highG: none = 0, ADS1115/ADXL377 combo = 1, H3LIS331DL = 2, TeensyADC/ADXL377 combo = 3
-baro: BMP180 = 1, MPL3115A2 = 2, BMP280 = 3, BMP388 = 4, MS5611 = 5, MS5607 = 6
+baro: BMP180 = 1, MPL3115A2 = 2, BMP280 = 3, BMP388 = 4, MS5611 = 5, MS5607 = 6, LPS25H = 7
 radio: RFM96W 433MHz = 1, RFM95W 915MHz = 2
-GPS: NEO-M8N = 1, SAM/MAX/NEO-M8Q/W = 2, NEO-M9N = 3
+GPS: NEO-M8N = 1, SAM/MAX/NEO-M8Q/W = 2, NEO-M9N = 3 , Ultimate-GPS-Pa1616s = 4 
 SD: SDcard present = 1, no SDcard = 0
 ________________________________
 Device Bus Legend

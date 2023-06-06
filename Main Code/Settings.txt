@@ -1,32 +1,32 @@
 Flight Computer Settings File
-Not not delete or change the order of the settings
+do not delete or change the order of the settings
 ***********************
 ----Flight Settings----
 ***********************
-Rocket Name = Mach Shock
+Rocket Name = Zephyr1
 flightProfile = S
-units = S
+units = M
 reportStyle = P
 startupTime = 10
 mainDeployAlt = 700
 apogeeDelay = 0.0
 maxRecordTime = 900
-silentTestMode = 1
+silentTestMode = 0
 magSwitchEnable = 0
-inflightRecovery = 1
+inflightRecovery = 2
 GPSlogFile = 0
 ***********************
 -----Pyro Settings-----
 ***********************
 pyroFiringTime = 0.5
-pyro4function = M
-pyro3function = A
-pyro2function = N
-pyro1function = N
+pyro4function = n
+pyro3function = n
+pyro2function = n
+pyro1function = n
 ***********************
 --Telemetry Settings---
 ***********************
-TXenable = 1
+TXenable = 0
 TXpwr = 13
 TXfreq = 433.250
 FHSS = 0
